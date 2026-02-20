@@ -26,6 +26,7 @@ import {
 } from "./controllers/exec-approval.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadSessions } from "./controllers/sessions.ts";
+import { processMindmapAgentEvent } from "./controllers/mindmap.ts";
 import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -209,10 +210,17 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     if (host.onboarding) {
       return;
     }
+    const agentPayload = evt.payload as AgentEventPayload | undefined;
     handleAgentEvent(
       host as unknown as Parameters<typeof handleAgentEvent>[0],
-      evt.payload as AgentEventPayload | undefined,
+      agentPayload,
     );
+    if (agentPayload) {
+      processMindmapAgentEvent(
+        host as unknown as Parameters<typeof processMindmapAgentEvent>[0],
+        agentPayload,
+      );
+    }
     return;
   }
 

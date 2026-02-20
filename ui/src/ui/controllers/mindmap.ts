@@ -6,6 +6,7 @@ import type {
   MindmapNodeId,
   SessionsListResult,
 } from "../types.ts";
+import type { AgentEventPayload } from "../app-tool-stream.ts";
 
 // ── State shape ──────────────────────────────────────────────────────
 
@@ -343,4 +344,47 @@ export function deleteMindmap(state: MindmapState): void {
   state.mindmapEditingNodeId = null;
   state.mindmapSessionsResult = null;
   state.mindmapChatPreviews = new Map();
+}
+
+// ── Agent Event Processing ──────────────────────────────────────────
+
+export function processMindmapAgentEvent(state: MindmapState, payload: AgentEventPayload): void {
+  if (
+    payload.stream !== "tool" ||
+    !payload.data ||
+    payload.data.name !== "sessions_spawn" ||
+    payload.data.phase !== "result" ||
+    !payload.data.result
+  ) {
+    return;
+  }
+  
+  const graph = state.mindmapGraph;
+  if (!graph) return;
+
+  try {
+    const parentSessionKey = payload.sessionKey;
+    let parentNodeId: typeof graph.nodes[0]["id"] | undefined;
+    
+    if (parentSessionKey) {
+      const parentNode = graph.nodes.find(n => n.sessionKeys?.includes(parentSessionKey));
+      if (parentNode) {
+        parentNodeId = parentNode.id;
+      }
+    }
+
+    const res = payload.data.result as { childSessionKey?: string, status?: string };
+    if (res.status !== "accepted" || !res.childSessionKey) return;
+    
+    const args = payload.data.args as { task?: string, label?: string, agentId?: string } | undefined;
+    const taskLabel = args?.label || args?.task || "Sub-agent";
+    const shortLabel = taskLabel.length > 50 ? taskLabel.slice(0, 47) + "..." : taskLabel;
+    
+    const newNodeId = addNode(state, shortLabel, parentNodeId);
+    if (newNodeId) {
+      linkSession(state, newNodeId, res.childSessionKey);
+    }
+  } catch {
+    // ignore
+  }
 }
