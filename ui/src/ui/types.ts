@@ -426,6 +426,37 @@ export type SessionsPatchResult = {
   };
 };
 
+// Mindmap types
+
+export type MindmapNodeId = string;
+
+export type MindmapNode = {
+  id: MindmapNodeId;
+  label: string;
+  description?: string;
+  x: number;
+  y: number;
+  sessionKeys?: string[];
+  parentId?: MindmapNodeId;
+  color?: string;
+  status?: "idle" | "active" | "done";
+  createdAt: number;
+};
+
+export type MindmapEdge = {
+  from: MindmapNodeId;
+  to: MindmapNodeId;
+};
+
+export type MindmapGraph = {
+  id: string;
+  title: string;
+  nodes: MindmapNode[];
+  edges: MindmapEdge[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type {
   CostUsageDailyEntry,
   CostUsageSummary,

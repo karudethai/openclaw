@@ -30,6 +30,8 @@ import type {
   SessionsListResult,
   SkillStatusReport,
   StatusSummary,
+  MindmapGraph,
+  MindmapNodeId,
 } from "./types.ts";
 import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types.ts";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
@@ -225,6 +227,15 @@ export type AppViewState = {
   updateAvailable: import("./types.js").UpdateAvailable | null;
   client: GatewayBrowserClient | null;
   refreshSessionsAfterChat: Set<string>;
+  // Mindmap
+  mindmapGraph: MindmapGraph | null;
+  mindmapSelectedNodeId: MindmapNodeId | null;
+  mindmapEditingNodeId: MindmapNodeId | null;
+  mindmapPan: { x: number; y: number };
+  mindmapZoom: number;
+  mindmapDragging: boolean;
+  mindmapSessionsResult: SessionsListResult | null;
+  mindmapChatPreviews: Map<string, import("./controllers/mindmap.ts").ChatPreviewLine[]>;
   connect: () => void;
   setTab: (tab: Tab) => void;
   setTheme: (theme: ThemeMode, context?: ThemeTransitionContext) => void;

@@ -79,6 +79,8 @@ import type {
   SkillStatusReport,
   StatusSummary,
   NostrProfile,
+  MindmapGraph,
+  MindmapNodeId,
 } from "./types.ts";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types.ts";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
@@ -351,6 +353,17 @@ export class OpenClawApp extends LitElement {
   private toolStreamById = new Map<string, ToolStreamEntry>();
   private toolStreamOrder: string[] = [];
   refreshSessionsAfterChat = new Set<string>();
+
+  // Mindmap state
+  @state() mindmapGraph: MindmapGraph | null = null;
+  @state() mindmapSelectedNodeId: MindmapNodeId | null = null;
+  @state() mindmapEditingNodeId: MindmapNodeId | null = null;
+  @state() mindmapPan = { x: 0, y: 0 };
+  @state() mindmapZoom = 1;
+  @state() mindmapDragging = false;
+  @state() mindmapSessionsResult: SessionsListResult | null = null;
+  @state() mindmapChatPreviews: Map<string, import("./controllers/mindmap.ts").ChatPreviewLine[]> = new Map();
+
   basePath = "";
   private popStateHandler = () =>
     onPopStateInternal(this as unknown as Parameters<typeof onPopStateInternal>[0]);

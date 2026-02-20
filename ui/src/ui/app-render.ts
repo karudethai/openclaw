@@ -46,6 +46,18 @@ import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
 import {
+  loadMindmap,
+  addNode,
+  updateNode,
+  removeNode,
+  createMindmap,
+  linkSession,
+  unlinkSession,
+  refreshNodeSessions,
+  deleteMindmap,
+  sendChatFromMindmap,
+} from "./controllers/mindmap.ts";
+import {
   installSkill,
   loadSkills,
   saveSkillApiKey,
@@ -68,6 +80,7 @@ import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
+import { renderMindmap } from "./views/mindmap.ts";
 
 const AVATAR_DATA_RE = /^data:/i;
 const AVATAR_HTTP_RE = /^https?:\/\//i;
@@ -316,6 +329,40 @@ export function renderApp(state: AppViewState) {
                 onPatch: (key, patch) => patchSession(state, key, patch),
                 onDelete: (key) => deleteSessionAndRefresh(state, key),
               })
+            : nothing
+        }
+
+        ${
+          state.tab === "mindmap"
+            ? (() => {
+                // Hydrate from localStorage on first visit (only when graph is null)
+                if (state.mindmapGraph === null) {
+                  loadMindmap(state);
+                }
+                return renderMindmap({
+                  graph: state.mindmapGraph,
+                  selectedNodeId: state.mindmapSelectedNodeId,
+                  editingNodeId: state.mindmapEditingNodeId,
+                  pan: state.mindmapPan,
+                  zoom: state.mindmapZoom,
+                  sessionsResult: state.mindmapSessionsResult,
+                  chatPreviews: state.mindmapChatPreviews,
+                  onCreateMindmap: (title) => createMindmap(state, title),
+                  onAddNode: (label, parentId) => addNode(state, label, parentId),
+                  onUpdateNode: (nodeId, patch) => updateNode(state, nodeId, patch),
+                  onRemoveNode: (nodeId) => removeNode(state, nodeId),
+                  onSelectNode: (nodeId) => { state.mindmapSelectedNodeId = nodeId; },
+                  onEditNode: (nodeId) => { state.mindmapEditingNodeId = nodeId; },
+                  onLinkSession: (nodeId, sessionKey) => linkSession(state, nodeId, sessionKey),
+                  onUnlinkSession: (nodeId, sessionKey) => unlinkSession(state, nodeId, sessionKey),
+                  onPanChange: (pan) => { state.mindmapPan = pan; },
+                  onZoomChange: (zoom) => { state.mindmapZoom = zoom; },
+                  onNodeMove: (nodeId, x, y) => updateNode(state, nodeId, { x, y }),
+                  onRefresh: () => refreshNodeSessions(state),
+                  onDelete: () => deleteMindmap(state),
+                  onSendChat: (sessionKey, message) => sendChatFromMindmap(state, sessionKey, message),
+                });
+              })()
             : nothing
         }
 

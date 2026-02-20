@@ -35,6 +35,7 @@ export const zh_TW: TranslationMap = {
     config: "配置",
     debug: "調試",
     logs: "日誌",
+    mindmap: "心智圖",
   },
   subtitles: {
     agents: "管理代理工作區、工具和身份。",
@@ -50,6 +51,7 @@ export const zh_TW: TranslationMap = {
     config: "安全地編輯 ~/.openclaw/openclaw.json。",
     debug: "網關快照、事件和手動 RPC 調用。",
     logs: "網關文件日志的實時追蹤。",
+    mindmap: "用於圍繞史詩任務編排代理會話的可視化畫布。",
   },
   overview: {
     access: {

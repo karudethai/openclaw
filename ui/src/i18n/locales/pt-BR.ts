@@ -35,6 +35,7 @@ export const pt_BR: TranslationMap = {
     config: "Config",
     debug: "Debug",
     logs: "Logs",
+    mindmap: "Mapa Mental",
   },
   subtitles: {
     agents: "Gerenciar espaços de trabalho, ferramentas e identidades de agentes.",
@@ -50,6 +51,7 @@ export const pt_BR: TranslationMap = {
     config: "Editar ~/.openclaw/openclaw.json com segurança.",
     debug: "Snapshots do gateway, eventos e chamadas RPC manuais.",
     logs: "Acompanhamento ao vivo dos logs de arquivo do gateway.",
+    mindmap: "Canvas visual para orquestrar sessões de agentes em torno de tarefas épicas.",
   },
   overview: {
     access: {
