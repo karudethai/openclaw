@@ -56,6 +56,8 @@ import {
   refreshNodeSessions,
   deleteMindmap,
   sendChatFromMindmap,
+  autoLayoutMindmap,
+  fetchChatPreviews,
 } from "./controllers/mindmap.ts";
 import {
   installSkill,
@@ -351,7 +353,12 @@ export function renderApp(state: AppViewState) {
                   onAddNode: (label, parentId) => addNode(state, label, parentId),
                   onUpdateNode: (nodeId, patch) => updateNode(state, nodeId, patch),
                   onRemoveNode: (nodeId) => removeNode(state, nodeId),
-                  onSelectNode: (nodeId) => { state.mindmapSelectedNodeId = nodeId; },
+                  onSelectNode: (nodeId) => { 
+                    state.mindmapSelectedNodeId = nodeId; 
+                    if (nodeId) {
+                      void fetchChatPreviews(state);
+                    }
+                  },
                   onEditNode: (nodeId) => { state.mindmapEditingNodeId = nodeId; },
                   onLinkSession: (nodeId, sessionKey) => linkSession(state, nodeId, sessionKey),
                   onUnlinkSession: (nodeId, sessionKey) => unlinkSession(state, nodeId, sessionKey),
@@ -361,6 +368,7 @@ export function renderApp(state: AppViewState) {
                   onRefresh: () => refreshNodeSessions(state),
                   onDelete: () => deleteMindmap(state),
                   onSendChat: (sessionKey, message) => sendChatFromMindmap(state, sessionKey, message),
+                  onAutoLayout: () => autoLayoutMindmap(state),
                 });
               })()
             : nothing

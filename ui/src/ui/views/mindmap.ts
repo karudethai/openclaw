@@ -32,6 +32,7 @@ export type MindmapProps = {
   onRefresh: () => void;
   onDelete: () => void;
   onSendChat: (sessionKey: string, message: string) => void;
+  onAutoLayout: () => void;
 };
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -205,19 +206,11 @@ function renderEmptyState(props: MindmapProps) {
           Create an epic task to start your mindmap. Break it into subtasks
           and link each to a live agent session.
         </p>
-        <form class="mm-create-form" @submit=${(e: Event) => {
-            e.preventDefault();
-            const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
-            const title = input?.value.trim();
-            if (title) props.onCreateMindmap(title);
-          }}>
-          <div class="mm-create-field">
-            <label class="mm-create-label">Epic name</label>
-            <input type="text" placeholder="e.g. Build Authentication System"
-              class="mm-create-input" autofocus required />
-          </div>
-          <button type="submit" class="mm-create-btn">🚀 Create Epic</button>
-        </form>
+
+        <button class="mm-create-btn" style="background: #334155; border-color: #475569;" @click=${props.onAutoLayout}>
+          🪄 Auto-Sync from Active Sessions
+        </button>
+
         <p class="mm-empty-hint">
           Tip: After creating, click on the epic node to add subtasks and link sessions.
         </p>
@@ -527,39 +520,10 @@ function renderDetailPanel(
             </div>`
           : nothing}
 
-        <select class="mm-detail-session-select"
-          @change=${(e: Event) => {
-            const key = (e.target as HTMLSelectElement).value;
-            if (key) props.onLinkSession(node.id, key);
-            (e.target as HTMLSelectElement).value = "";
-          }}>
-          <option value="">+ Add a session…</option>
-          ${availableSessions.map(
-            (s) => html`<option value=${s.key}>
-              ${s.key}${s.label ? ` — ${s.label}` : ""} (${formatTokens(s.totalTokens)} tok)
-            </option>`,
-          )}
-        </select>
-        ${allSessions.length === 0
-          ? html`<p class="mm-detail-hint">Click "↻ Sessions" in the toolbar to load sessions from the gateway.</p>`
-          : nothing}
+
       </div>
 
-      <div class="mm-detail-section">
-        <h4>📝 Add Subtask</h4>
-        <form class="mm-inline-add" @submit=${(e: Event) => {
-          e.preventDefault();
-          const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
-          const label = input?.value.trim();
-          if (label) {
-            props.onAddNode(label, node.id);
-            input.value = "";
-          }
-        }}>
-          <input type="text" placeholder="Subtask name…" class="mm-inline-add-input" />
-          <button type="submit" class="mm-add-btn">+ Add</button>
-        </form>
-      </div>
+
 
       ${!isRoot
         ? html`
@@ -585,20 +549,7 @@ function renderToolbar(props: MindmapProps) {
 
   return html`
     <div class="mm-toolbar">
-      <form class="mm-toolbar-add" @submit=${(e: Event) => {
-        e.preventDefault();
-        const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
-        const label = input?.value.trim();
-        if (label) {
-          props.onAddNode(label);
-          input.value = "";
-        }
-      }}>
-        <input type="text" placeholder="New task…" class="mm-toolbar-add-input" />
-        <button type="submit" class="mm-toolbar-btn">+ Add</button>
-      </form>
 
-      <span class="mm-toolbar-divider"></span>
 
       <button class="mm-toolbar-btn" title="Zoom out"
         @click=${() => props.onZoomChange(Math.max(props.zoom * 0.8, MIN_ZOOM))}>−</button>
@@ -612,6 +563,10 @@ function renderToolbar(props: MindmapProps) {
 
       <button class="mm-toolbar-btn" title="Refresh sessions" @click=${props.onRefresh}>
         ↻ Sessions
+      </button>
+      
+      <button class="mm-toolbar-btn" title="Redraw based on active sessions" @click=${props.onAutoLayout}>
+        🪄 Auto-Sync
       </button>
 
       <span class="mm-toolbar-stats">${nodeCount} nodes · ${linkedCount} linked</span>
@@ -699,7 +654,7 @@ export function renderMindmap(props: MindmapProps) {
                   findSessionsForNode(node, sessions),
                   props,
                 )}
-                ${renderChatBubble(node, isRoot, chatLines, sessionKey, props)}
+                ${node.id === props.selectedNodeId ? renderChatBubble(node, isRoot, chatLines, sessionKey, props) : nothing}
               `;
             })}
           </g>

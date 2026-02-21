@@ -7,6 +7,8 @@ import type {
   SessionsListResult,
 } from "../types.ts";
 import type { AgentEventPayload } from "../app-tool-stream.ts";
+import type { ChatEventPayload } from "./chat.ts";
+import { extractText } from "../chat/message-extract.ts";
 
 // ── State shape ──────────────────────────────────────────────────────
 
@@ -24,6 +26,7 @@ export type MindmapState = {
   mindmapSessionsResult: SessionsListResult | null;
   mindmapChatPreviews: Map<string, ChatPreviewLine[]>;
   settings: { gatewayUrl?: string };
+  agentsList?: import("../types.ts").AgentsListResult | null;
 };
 
 // ── Storage ──────────────────────────────────────────────────────────
@@ -85,17 +88,23 @@ export function createMindmap(state: MindmapState, title: string): void {
 
 const TWO_PI = 2 * Math.PI;
 
-function radialPosition(
-  parent: MindmapNode,
-  siblingCount: number,
-  siblingIndex: number,
-  radius = 180,
-): { x: number; y: number } {
-  const angle = (TWO_PI * siblingIndex) / Math.max(siblingCount, 1) - Math.PI / 2;
-  return {
-    x: parent.x + radius * Math.cos(angle),
-    y: parent.y + radius * Math.sin(angle),
-  };
+export function applyRadialLayout(graph: MindmapGraph) {
+  if (!graph || graph.nodes.length === 0) return;
+  const rootId = graph.nodes[0].id;
+  
+  const childEdges = graph.edges.filter((e) => e.from === rootId);
+  const childIds = childEdges.map((e) => e.to);
+  const childNodes = graph.nodes.filter((n) => childIds.includes(n.id));
+
+  if (childNodes.length === 0) return;
+
+  const radius = Math.max(350, (childNodes.length * 380) / TWO_PI);
+  
+  childNodes.forEach((child, index) => {
+    const angle = (TWO_PI * index) / Math.max(childNodes.length, 1) - Math.PI / 2;
+    child.x = radius * Math.cos(angle);
+    child.y = radius * Math.sin(angle);
+  });
 }
 
 export function addNode(
@@ -104,28 +113,18 @@ export function addNode(
   parentId?: MindmapNodeId,
 ): MindmapNodeId | null {
   const graph = state.mindmapGraph;
-  if (!graph) {
-    return null;
-  }
+  if (!graph) return null;
 
   const resolvedParentId = parentId ?? graph.nodes[0]?.id;
   const parent = graph.nodes.find((n) => n.id === resolvedParentId);
-  if (!parent) {
-    return null;
-  }
+  if (!parent) return null;
 
-  // Count existing children for position calculation
-  const existingChildren = graph.edges.filter((e) => e.from === resolvedParentId).length;
-  const totalChildren = existingChildren + 1;
-
-  const pos = radialPosition(parent, totalChildren, existingChildren);
   const now = Date.now();
-
   const node: MindmapNode = {
     id: generateUUID(),
     label,
-    x: pos.x,
-    y: pos.y,
+    x: 0,
+    y: 0,
     parentId: resolvedParentId,
     status: "idle",
     createdAt: now,
@@ -133,6 +132,9 @@ export function addNode(
 
   graph.nodes = [...graph.nodes, node];
   graph.edges = [...graph.edges, { from: resolvedParentId, to: node.id }];
+  
+  applyRadialLayout(graph);
+  
   state.mindmapGraph = { ...graph };
   saveMindmap(state);
   return node.id;
@@ -242,8 +244,19 @@ export async function refreshNodeSessions(state: MindmapState): Promise<void> {
   } catch {
     // Silently ignore — sessions panel is secondary
   }
-  // Also fetch chat previews for all linked sessions
+// Also fetch chat previews for all linked sessions
   await fetchChatPreviews(state);
+}
+
+export function scrollMindmapChatsToBottom() {
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
+      const els = document.querySelectorAll('.mm-chat-messages');
+      els.forEach((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }, 100);
+  });
 }
 
 function extractTextFromMessage(msg: unknown): string | null {
@@ -303,6 +316,7 @@ export async function fetchChatPreviews(state: MindmapState): Promise<void> {
   );
 
   state.mindmapChatPreviews = previews;
+  scrollMindmapChatsToBottom();
 }
 
 // ── Send chat message from mindmap ──────────────────────────────────
@@ -314,16 +328,25 @@ export async function sendChatFromMindmap(
 ): Promise<void> {
   if (!state.client || !state.connected || !message.trim()) return;
 
+  const msg = message.trim();
+
+  // Optimistic UI update
+  handleSessionActivity(state, sessionKey, "active");
+  
+  const previews = state.mindmapChatPreviews;
+  const lines = previews.get(sessionKey) || [];
+  const newMap = new Map(previews);
+  newMap.set(sessionKey, [...lines, { role: "user", text: msg }]);
+  state.mindmapChatPreviews = newMap;
+  scrollMindmapChatsToBottom();
+
   try {
     await state.client.request("chat.send", {
       sessionKey,
-      message: message.trim(),
+      message: msg,
       deliver: false,
       idempotencyKey: generateUUID(),
     });
-
-    // Wait a moment for the response, then refresh previews
-    setTimeout(() => fetchChatPreviews(state), 2000);
   } catch {
     // silently fail
   }
@@ -342,20 +365,63 @@ export function deleteMindmap(state: MindmapState): void {
   state.mindmapGraph = null;
   state.mindmapSelectedNodeId = null;
   state.mindmapEditingNodeId = null;
-  state.mindmapSessionsResult = null;
   state.mindmapChatPreviews = new Map();
 }
 
 // ── Agent Event Processing ──────────────────────────────────────────
 
+const nodeStatusTimers = new Map<MindmapNodeId, number>();
+
+export function updateNodeStatus(state: MindmapState, nodeId: MindmapNodeId, status: "idle" | "active" | "done") {
+  const graph = state.mindmapGraph;
+  if (!graph) return;
+  
+  const node = graph.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  
+  if (nodeStatusTimers.has(nodeId)) {
+    window.clearTimeout(nodeStatusTimers.get(nodeId));
+    nodeStatusTimers.delete(nodeId);
+  }
+  
+  if (node.status !== status) {
+    updateNode(state, nodeId, { status });
+  }
+  
+  if (status === "done") {
+    const timer = window.setTimeout(() => {
+      updateNodeStatus(state, nodeId, "idle");
+    }, 43000);
+    nodeStatusTimers.set(nodeId, timer);
+  }
+}
+
+export function handleSessionActivity(state: MindmapState, sessionKey: string, status: "active" | "done") {
+  if (!state.mindmapGraph) return;
+  for (const node of state.mindmapGraph.nodes) {
+    if (node.sessionKeys?.includes(sessionKey)) {
+      updateNodeStatus(state, node.id, status);
+    }
+  }
+}
+
 export function processMindmapAgentEvent(state: MindmapState, payload: AgentEventPayload): void {
+  if (payload.sessionKey) {
+    handleSessionActivity(state, payload.sessionKey, "active");
+  }
+
+  // Let's accept any tool call that finished successfully and smells like sessions_spawn
   if (
     payload.stream !== "tool" ||
     !payload.data ||
-    payload.data.name !== "sessions_spawn" ||
     payload.data.phase !== "result" ||
     !payload.data.result
   ) {
+    return;
+  }
+  
+  const name = payload.data.name as string | undefined;
+  if (!name || (!name.includes("sessions_spawn") && !name.includes("subagent"))) {
     return;
   }
   
@@ -373,8 +439,9 @@ export function processMindmapAgentEvent(state: MindmapState, payload: AgentEven
       }
     }
 
-    const res = payload.data.result as { childSessionKey?: string, status?: string };
-    if (res.status !== "accepted" || !res.childSessionKey) return;
+    const res = payload.data.result as { childSessionKey?: string, sessionKey?: string, status?: string };
+    const childKey = res.childSessionKey || res.sessionKey;
+    if (!childKey) return;
     
     const args = payload.data.args as { task?: string, label?: string, agentId?: string } | undefined;
     const taskLabel = args?.label || args?.task || "Sub-agent";
@@ -382,9 +449,157 @@ export function processMindmapAgentEvent(state: MindmapState, payload: AgentEven
     
     const newNodeId = addNode(state, shortLabel, parentNodeId);
     if (newNodeId) {
-      linkSession(state, newNodeId, res.childSessionKey);
+      linkSession(state, newNodeId, childKey);
     }
   } catch {
     // ignore
   }
+}
+
+export function processMindmapChatEvent(state: MindmapState, payload: ChatEventPayload): void {
+  const { sessionKey, state: chatState, message } = payload;
+  const graph = state.mindmapGraph;
+  if (!graph) return;
+
+  // Check if session belongs to any mindmap node
+  const linked = graph.nodes.some(n => n.sessionKeys?.includes(sessionKey));
+  if (!linked) return;
+
+  if (chatState === "final" || chatState === "aborted" || chatState === "error") {
+    handleSessionActivity(state, sessionKey, "done");
+    // Re-fetch everything cleanly on final/error
+    void fetchChatPreviews(state);
+    return;
+  }
+
+  if (chatState === "delta") {
+    handleSessionActivity(state, sessionKey, "active");
+    // Live update the previews
+    const text = extractText(message);
+    if (!text) return;
+
+    const previews = state.mindmapChatPreviews;
+    let lines = previews.get(sessionKey);
+    if (!lines) {
+      lines = [];
+    }
+
+    // Work on a copy of the lines to trigger reactivity
+    const newLines = [...lines];
+    const lastLineIndex = newLines.findLastIndex(l => l.role === "assistant");
+    
+    if (lastLineIndex >= 0) {
+      newLines[lastLineIndex] = { ...newLines[lastLineIndex], text };
+    } else {
+      newLines.push({ role: "assistant", text });
+    }
+
+    // Set a new Map reference to ensure the UI updates
+    const newMap = new Map(previews);
+    newMap.set(sessionKey, newLines);
+    state.mindmapChatPreviews = newMap;
+    scrollMindmapChatsToBottom();
+  }
+}
+
+// ── Auto Layout ──────────────────────────────────────────────────────
+
+export async function autoLayoutMindmap(state: MindmapState): Promise<void> {
+  console.log("autoLayoutMindmap: start", { hasSessionsResult: !!state.mindmapSessionsResult });
+  
+  // We should force a refresh so we always get the *latest* sessions.
+  // The user expects active sessions running right now.
+  await refreshNodeSessions(state);
+
+  const sessions = state.mindmapSessionsResult?.sessions ?? [];
+  console.log("autoLayoutMindmap: total sessions found:", sessions.length);
+  if (sessions.length === 0) {
+    console.log("autoLayoutMindmap: no sessions available, returning early.");
+    // Alert the user!
+    window.alert("No active sessions found! Please click '↻ Sessions' and try again, or make sure your agent has spawned operations.");
+    return;
+  }
+
+  const mainSessions = sessions.filter(s => !s.key.includes(":subagent:"));
+  console.log("autoLayoutMindmap: main sessions:", mainSessions.length);
+  const mainSession = 
+    mainSessions.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] 
+    ?? sessions[0];
+    
+  console.log("autoLayoutMindmap: selected main session:", mainSession.key);
+  
+  let epicTitle = (state as any).assistantName;
+  
+  if (!epicTitle || epicTitle === "Assistant") {
+    epicTitle = mainSession.label || mainSession.displayName;
+    if (!epicTitle || epicTitle === mainSession.key) {
+      const parts = mainSession.key.split(":");
+      const agentId = (parts[0] === "agent" && parts[1]) ? parts[1] : null;
+      let agentName = agentId;
+      if (agentId && state.agentsList?.agents) {
+        const agentInfo = state.agentsList.agents.find(a => a.id === agentId);
+        if (agentInfo?.identity?.name) {
+          agentName = agentInfo.identity.name;
+        } else if (agentInfo?.name) {
+          agentName = agentInfo.name;
+        }
+      }
+      epicTitle = agentName || "Main Epic";
+    }
+  }
+  
+  if (!state.mindmapGraph) {
+    console.log("autoLayoutMindmap: creating mindmap...");
+    createMindmap(state, epicTitle);
+  } else if (state.mindmapGraph.nodes.length > 0) {
+    if (!state.mindmapGraph.nodes[0].label || state.mindmapGraph.nodes[0].label === "Main Epic") {
+      state.mindmapGraph.nodes[0].label = epicTitle;
+    }
+  }
+  
+  const graph = state.mindmapGraph;
+  if (!graph) return;
+  
+  // Link the main session to the epic root
+  const epicNodeId = graph.nodes[0].id;
+  linkSession(state, epicNodeId, mainSession.key);
+
+  // Find all subagent sessions
+  const subagents = sessions.filter(s => s.key.includes(":subagent:"));
+  
+  // Sort subagents by time
+  subagents.sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
+  
+  const validSubagents = subagents.filter(sub => sub.label || sub.displayName);
+  const now = Date.now();
+  
+  for (const sub of validSubagents) {
+    const subTitle = sub.label || sub.displayName;
+    if (!subTitle) continue;
+    
+    // IF node for this session already exists, DO NOT DUPLICATE IT
+    const exists = graph.nodes.some(n => n.sessionKeys && n.sessionKeys.includes(sub.key));
+    if (exists) continue;
+    
+    const shortLabel = subTitle.length > 50 ? subTitle.slice(0, 47) + "..." : subTitle;
+    const childId = generateUUID();
+    
+    graph.nodes.push({
+      id: childId,
+      label: shortLabel,
+      x: 0,
+      y: 0,
+      parentId: epicNodeId,
+      status: "idle",
+      createdAt: now,
+      sessionKeys: [sub.key]
+    });
+    
+    graph.edges.push({ from: epicNodeId, to: childId });
+  }
+  
+  applyRadialLayout(graph);
+  
+  state.mindmapGraph = { ...graph };
+  saveMindmap(state);
 }

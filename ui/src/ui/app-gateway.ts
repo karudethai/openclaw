@@ -26,7 +26,7 @@ import {
 } from "./controllers/exec-approval.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadSessions } from "./controllers/sessions.ts";
-import { processMindmapAgentEvent } from "./controllers/mindmap.ts";
+import { processMindmapAgentEvent, processMindmapChatEvent } from "./controllers/mindmap.ts";
 import type { GatewayEventFrame, GatewayHelloOk } from "./gateway.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -233,6 +233,12 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
       );
     }
     const state = handleChatEvent(host as unknown as OpenClawApp, payload);
+    if (payload) {
+      processMindmapChatEvent(
+        host as unknown as Parameters<typeof processMindmapChatEvent>[0],
+        payload,
+      );
+    }
     if (state === "final" || state === "error" || state === "aborted") {
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
       void flushChatQueueForEvent(host as unknown as Parameters<typeof flushChatQueueForEvent>[0]);
