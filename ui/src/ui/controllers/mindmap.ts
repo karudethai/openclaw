@@ -1,5 +1,5 @@
 import { generateUUID } from "../uuid.ts";
-import type { GatewayBrowserClient } from "../gateway.ts";
+import type { GatewayBrowserClient, GatewayEventFrame } from "../gateway.ts";
 import type {
   MindmapGraph,
   MindmapNode,
@@ -15,6 +15,7 @@ import { extractText } from "../chat/message-extract.ts";
 export type ChatPreviewLine = {
   role: "user" | "assistant";
   text: string;
+  isSummary?: boolean;
 };
 
 export type MindmapState = {
@@ -239,6 +240,7 @@ export async function refreshNodeSessions(state: MindmapState): Promise<void> {
       includeUnknown: true,
     });
     if (res) {
+      res.sessions = res.sessions.filter(s => !s.key.startsWith("summary:"));
       state.mindmapSessionsResult = res;
     }
   } catch {
@@ -275,6 +277,66 @@ function extractTextFromMessage(msg: unknown): string | null {
   return null;
 }
 
+const activeSummaries = new Set<string>(); // runIds
+
+async function requestLLMSummary(state: MindmapState, node: MindmapNode, lines: ChatPreviewLine[]) {
+  if (!state.client || !state.connected || !node.sessionKeys || node.sessionKeys.length === 0) return;
+
+  const sessionKey = node.sessionKeys[0];
+  const idempotencyKey = "mm-sum-" + generateUUID();
+  activeSummaries.add(idempotencyKey);
+
+  const lastAssistantLine = lines.findLast(l => l.role === 'assistant' && !l.isSummary);
+  if (!lastAssistantLine) {
+    activeSummaries.delete(idempotencyKey);
+    return;
+  }
+  
+  const prompt = `[Summary Request]: Summarize your last message in exactly one short, descriptive sentence (max 90 characters). 
+Focus on the core action taken or the conclusion reached. Use active voice. 
+Your response MUST start with "[Node Summary]:".
+
+Assistant Message:
+${lastAssistantLine.text}`;
+
+  try {
+    node.lastSummaryMessageCount = lines.length;
+    saveMindmap(state);
+
+    await state.client.request("agent", {
+      message: prompt,
+      sessionKey,
+      idempotencyKey,
+      deliver: false,
+    });
+  } catch (err) {
+    console.error("LLM Summary request failed", err);
+    activeSummaries.delete(idempotencyKey);
+  }
+}
+
+function generateChatSummary(lines: ChatPreviewLine[]): string {
+  if (lines.length === 0) return "";
+  const lastAssistant = lines.findLast(l => l.role === 'assistant' && !l.isSummary);
+  const targetText = lastAssistant ? lastAssistant.text : lines[lines.length - 1].text;
+  
+  const cleanText = targetText
+    .replace(/\[Node Summary\]:.*$/g, "")
+    .replace(/\[Summary Request\]:.*$/g, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/[*`#\n]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleanText) return "Working…";
+  
+  const match = cleanText.match(/^[^.!?]*[.!?]/);
+  let sentence = match ? match[0].trim() : cleanText;
+  if (sentence.length > 90) {
+    sentence = sentence.slice(0, 87) + "...";
+  }
+  return sentence;
+}
+
 export async function fetchChatPreviews(state: MindmapState): Promise<void> {
   if (!state.client || !state.connected || !state.mindmapGraph) return;
 
@@ -302,12 +364,26 @@ export async function fetchChatPreviews(state: MindmapState): Promise<void> {
           const role = m.role === "user" ? "user" : "assistant";
           const text = extractTextFromMessage(msg);
           if (text) {
-            lines.push({ role, text });
-
+            const isSummary = text.includes("[Node Summary]:") || text.includes("[Summary Request]:");
+            lines.push({ role, text, isSummary });
           }
         }
         if (lines.length > 0) {
           previews.set(sessionKey, lines);
+          const node = state.mindmapGraph!.nodes.find(n => n.sessionKeys && n.sessionKeys.includes(sessionKey));
+          if (node) {
+            const visibleLines = lines.filter(l => !l.isSummary);
+            const lastIsAssistant = visibleLines.length > 0 && visibleLines[visibleLines.length - 1].role === 'assistant';
+            const shouldLLM = lastIsAssistant && (node.lastSummaryMessageCount === undefined || visibleLines.length > node.lastSummaryMessageCount);
+            
+            if (shouldLLM) {
+              void requestLLMSummary(state, node, visibleLines);
+            }
+            
+            if (!node.description) {
+              node.description = generateChatSummary(visibleLines);
+            }
+          }
         }
       } catch {
         // skip this session
@@ -336,8 +412,21 @@ export async function sendChatFromMindmap(
   const previews = state.mindmapChatPreviews;
   const lines = previews.get(sessionKey) || [];
   const newMap = new Map(previews);
-  newMap.set(sessionKey, [...lines, { role: "user", text: msg }]);
+  const newLines: ChatPreviewLine[] = [...lines, { role: "user", text: msg }];
+  newMap.set(sessionKey, newLines);
   state.mindmapChatPreviews = newMap;
+  
+  const nodeToUpdate = state.mindmapGraph?.nodes.find(n => n.sessionKeys?.includes(sessionKey));
+  if (nodeToUpdate) {
+    const visibleLines = newLines.filter(l => !l.isSummary);
+    if (!nodeToUpdate.description) {
+      nodeToUpdate.description = generateChatSummary(visibleLines);
+    }
+    if (visibleLines.length > (nodeToUpdate.lastSummaryMessageCount ?? 0) && visibleLines.length > 0 && visibleLines[visibleLines.length - 1].role === 'assistant') {
+      void requestLLMSummary(state, nodeToUpdate, visibleLines);
+    }
+  }
+  
   scrollMindmapChatsToBottom();
 
   try {
@@ -407,6 +496,7 @@ export function handleSessionActivity(state: MindmapState, sessionKey: string, s
 
 export function processMindmapAgentEvent(state: MindmapState, payload: AgentEventPayload): void {
   if (payload.sessionKey) {
+    if (payload.sessionKey.startsWith("summary:")) return;
     handleSessionActivity(state, payload.sessionKey, "active");
   }
 
@@ -478,6 +568,9 @@ export function processMindmapChatEvent(state: MindmapState, payload: ChatEventP
     const text = extractText(message);
     if (!text) return;
 
+    const isSummaryRequest = text.includes("[Summary Request]:");
+    const isSummaryResponse = text.includes("[Node Summary]:");
+
     const previews = state.mindmapChatPreviews;
     let lines = previews.get(sessionKey);
     if (!lines) {
@@ -488,17 +581,48 @@ export function processMindmapChatEvent(state: MindmapState, payload: ChatEventP
     const newLines = [...lines];
     const lastLineIndex = newLines.findLastIndex(l => l.role === "assistant");
     
-    if (lastLineIndex >= 0) {
+    if (lastLineIndex >= 0 && !isSummaryRequest && !isSummaryResponse) {
       newLines[lastLineIndex] = { ...newLines[lastLineIndex], text };
     } else {
-      newLines.push({ role: "assistant", text });
+      newLines.push({ role: "assistant", text, isSummary: isSummaryRequest || isSummaryResponse });
     }
 
     // Set a new Map reference to ensure the UI updates
     const newMap = new Map(previews);
     newMap.set(sessionKey, newLines);
     state.mindmapChatPreviews = newMap;
+    
+    const nodeToUpdate = graph.nodes.find(n => n.sessionKeys?.includes(sessionKey));
+    if (nodeToUpdate) {
+      const visibleLines = newLines.filter(l => !l.isSummary);
+      if (!nodeToUpdate.description || isSummaryResponse) {
+        nodeToUpdate.description = generateChatSummary(visibleLines);
+      }
+    }
+    
     scrollMindmapChatsToBottom();
+  }
+}
+
+export function handleMindmapSummaryEvent(state: MindmapState, payload: ChatEventPayload): void {
+  const { sessionKey, state: chatState, message } = payload;
+  const graph = state.mindmapGraph;
+  if (!graph) return;
+
+  const text = extractText(message);
+  if (!text || !text.includes("[Node Summary]:")) return;
+
+  const node = graph.nodes.find(n => n.sessionKeys?.includes(sessionKey));
+  if (!node) return;
+
+  if (chatState === "delta" || chatState === "final") {
+    const cleanText = text.replace("[Node Summary]:", "").replace(/["']/g, "").trim();
+    if (cleanText && cleanText.length > 5) {
+      node.description = cleanText;
+      if (chatState === "final") {
+        saveMindmap(state);
+      }
+    }
   }
 }
 
@@ -520,13 +644,21 @@ export async function autoLayoutMindmap(state: MindmapState): Promise<void> {
     return;
   }
 
-  const mainSessions = sessions.filter(s => !s.key.includes(":subagent:"));
-  console.log("autoLayoutMindmap: main sessions:", mainSessions.length);
+  const mainSessions = sessions.filter(s => !s.key.includes(":subagent:") && !s.key.startsWith("summary:"));
+  
+  // Prioritize sessions ending in ":main", "global", or exactly "main"
+  const prioritized = mainSessions.filter(s => s.key.endsWith(":main") || s.key === "global" || s.key === "main");
+  
+  console.log("autoLayoutMindmap: main sessions:", mainSessions.length, "prioritized:", prioritized.length);
   const mainSession = 
-    mainSessions.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] 
-    ?? sessions[0];
+    prioritized.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] 
+    ?? mainSessions.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+    ?? sessions.filter(s => !s.key.startsWith("summary:"))[0];
     
-  console.log("autoLayoutMindmap: selected main session:", mainSession.key);
+  if (!mainSession) {
+    console.log("autoLayoutMindmap: no sessions available, returning early.");
+    return;
+  }
   
   let epicTitle = (state as any).assistantName;
   

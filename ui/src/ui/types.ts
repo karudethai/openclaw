@@ -441,6 +441,7 @@ export type MindmapNode = {
   color?: string;
   status?: "idle" | "active" | "done";
   createdAt: number;
+  lastSummaryMessageCount?: number;
 };
 
 export type MindmapEdge = {

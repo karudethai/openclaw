@@ -48,6 +48,7 @@ export async function loadSessions(
     }
     const res = await state.client.request<SessionsListResult | undefined>("sessions.list", params);
     if (res) {
+      res.sessions = res.sessions.filter(s => !s.key.startsWith("summary:"));
       state.sessionsResult = res;
     }
   } catch (err) {

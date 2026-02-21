@@ -286,8 +286,8 @@ function renderChatBubble(
           </div>
 
           <div class="mm-chat-messages">
-            ${chatLines.length > 0
-              ? chatLines.map(
+            ${chatLines.filter(l => !l.isSummary).length > 0
+              ? chatLines.filter(l => !l.isSummary).map(
                   (line) => html`
                     <div class="mm-chat-msg mm-chat-msg--${line.role}">
                       <span class="mm-chat-msg-icon">${line.role === "user" ? "\uD83D\uDC64" : "\uD83E\uDD16"}</span>
@@ -399,24 +399,17 @@ function renderNode(
         ${label}
       </text>
 
-      ${hasAnySession && !isRoot
-        ? svg`<text x="0" y="10" text-anchor="middle" dominant-baseline="central"
-            fill="#94a3b8" font-size="8" opacity="0.7" pointer-events="none">
-            ${sessionCount} session${sessionCount > 1 ? "s" : ""} · ${formatTokens(totalTok)} tok
-          </text>`
-        : nothing}
+      ${nothing}
 
       <circle cx="0" cy=${r + 10} r="4"
         fill=${status === "done" ? "#22c55e" : status === "active" ? "#3b82f6" : "#6b7280"} />
 
-      ${hasAnySession
-        ? svg`<g transform="translate(${r - 4}, ${-r + 4})">
-            <circle cx="0" cy="0" r="10" fill="#0f172a" opacity="0.9" />
-            <text x="0" y="0" text-anchor="middle" dominant-baseline="central"
-              fill="#818cf8" font-size="9" font-weight="700" pointer-events="none">
-              ${sessionCount}
-            </text>
-          </g>`
+      ${node.description
+        ? svg`<foreignObject x=${r - 5} y=${-r - 65} width="220" height="85" pointer-events="none">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="font-size: 11.5px; color: #f1f5f9; background: rgba(15, 23, 42, 0.95); border: 1.5px solid #475569; border-radius: 8px; padding: 6px 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.4; font-weight: 600; font-family: 'Inter', sans-serif; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.2), 0 4px 6px -4px rgb(0 0 0 / 0.2); backdrop-filter: blur(4px);">
+              ${node.description}
+            </div>
+          </foreignObject>`
         : nothing}
 
       ${isRoot && !isSelected && props.graph && props.graph.nodes.length === 1
