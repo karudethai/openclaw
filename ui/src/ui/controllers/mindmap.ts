@@ -519,28 +519,12 @@ export function processMindmapAgentEvent(state: MindmapState, payload: AgentEven
   if (!graph) return;
 
   try {
-    const parentSessionKey = payload.sessionKey;
-    let parentNodeId: typeof graph.nodes[0]["id"] | undefined;
-    
-    if (parentSessionKey) {
-      const parentNode = graph.nodes.find(n => n.sessionKeys?.includes(parentSessionKey));
-      if (parentNode) {
-        parentNodeId = parentNode.id;
-      }
-    }
-
     const res = payload.data.result as { childSessionKey?: string, sessionKey?: string, status?: string };
     const childKey = res.childSessionKey || res.sessionKey;
     if (!childKey) return;
     
-    const args = payload.data.args as { task?: string, label?: string, agentId?: string } | undefined;
-    const taskLabel = args?.label || args?.task || "Sub-agent";
-    const shortLabel = taskLabel.length > 50 ? taskLabel.slice(0, 47) + "..." : taskLabel;
-    
-    const newNodeId = addNode(state, shortLabel, parentNodeId);
-    if (newNodeId) {
-      linkSession(state, newNodeId, childKey);
-    }
+    // Automatically perform a full graph layout sync to pull in the newly discovered subagent!
+    void autoLayoutMindmap(state, { quiet: true });
   } catch {
     // ignore
   }
@@ -628,7 +612,7 @@ export function handleMindmapSummaryEvent(state: MindmapState, payload: ChatEven
 
 // ── Auto Layout ──────────────────────────────────────────────────────
 
-export async function autoLayoutMindmap(state: MindmapState): Promise<void> {
+export async function autoLayoutMindmap(state: MindmapState, options?: { quiet?: boolean }): Promise<void> {
   console.log("autoLayoutMindmap: start", { hasSessionsResult: !!state.mindmapSessionsResult });
   
   // We should force a refresh so we always get the *latest* sessions.
@@ -639,8 +623,9 @@ export async function autoLayoutMindmap(state: MindmapState): Promise<void> {
   console.log("autoLayoutMindmap: total sessions found:", sessions.length);
   if (sessions.length === 0) {
     console.log("autoLayoutMindmap: no sessions available, returning early.");
-    // Alert the user!
-    window.alert("No active sessions found! Please click '↻ Sessions' and try again, or make sure your agent has spawned operations.");
+    if (!options?.quiet) {
+      window.alert("No active sessions found! Please click '↻ Sessions' and try again, or make sure your agent has spawned operations.");
+    }
     return;
   }
 
@@ -702,12 +687,10 @@ export async function autoLayoutMindmap(state: MindmapState): Promise<void> {
   // Sort subagents by time
   subagents.sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
   
-  const validSubagents = subagents.filter(sub => sub.label || sub.displayName);
   const now = Date.now();
   
-  for (const sub of validSubagents) {
-    const subTitle = sub.label || sub.displayName;
-    if (!subTitle) continue;
+  for (const sub of subagents) {
+    const subTitle = sub.label || sub.displayName || `Task ${sub.key.split(":").pop()?.substring(0, 6)}`;
     
     // IF node for this session already exists, DO NOT DUPLICATE IT
     const exists = graph.nodes.some(n => n.sessionKeys && n.sessionKeys.includes(sub.key));

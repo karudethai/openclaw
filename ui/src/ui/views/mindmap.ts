@@ -262,15 +262,15 @@ function renderChatBubble(
   if (!sessionKey) return nothing;
 
   const r = isRoot ? ROOT_RADIUS : CHILD_RADIUS;
-  const bubbleW = 340;
+  const bubbleW = 950;
   const bubbleH = 400;
-  const bubbleY = r + 18;
+  const bubbleY = r + 24;
 
   return svg`
     <g transform="translate(${node.x}, ${node.y})">
       <!-- Connector line -->
       <line x1="0" y1=${r + 6} x2="0" y2=${bubbleY}
-        stroke="#6366f1" stroke-width="1" opacity="0.3" stroke-dasharray="3 3" />
+        stroke="#6366f1" stroke-width="2" opacity="0.4" stroke-dasharray="4 4" />
 
       <!-- Chat bubble via foreignObject -->
       <foreignObject
@@ -279,26 +279,29 @@ function renderChatBubble(
         class="mm-chat-fo"
       >
         <div xmlns="http://www.w3.org/1999/xhtml" class="mm-chat-box"
+          style="height: 100%; display: flex; flex-direction: column; background: rgba(15, 23, 42, 0.96); border: 2.5px solid #475569; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); backdrop-filter: blur(12px);"
           @pointerdown=${(e: Event) => e.stopPropagation()}
           @wheel=${(e: Event) => e.stopPropagation()}>
-          <div class="mm-chat-box-header">
-            <span class="mm-chat-box-title">\uD83D\uDCAC ${sessionKey}</span>
+          <div class="mm-chat-box-header" style="padding: 18px 24px; border-bottom: 1.5px solid #334155;">
+            <span class="mm-chat-box-title" style="font-size: 20px; font-weight: 700; color: #f8fafc;">\uD83D\uDCAC ${sessionKey}</span>
           </div>
 
-          <div class="mm-chat-messages">
+          <div class="mm-chat-messages" style="flex: 1; overflow-y: auto; padding: 20px; gap: 16px; display: flex; flex-direction: column;">
             ${chatLines.filter(l => !l.isSummary).length > 0
               ? chatLines.filter(l => !l.isSummary).map(
                   (line) => html`
-                    <div class="mm-chat-msg mm-chat-msg--${line.role}">
-                      <span class="mm-chat-msg-icon">${line.role === "user" ? "\uD83D\uDC64" : "\uD83E\uDD16"}</span>
-                      <span class="mm-chat-msg-text">${formatChatText(line.text)}</span>
+                    <div class="mm-chat-msg mm-chat-msg--${line.role}" style="display: flex; gap: 14px; align-items: flex-start;">
+                      <span class="mm-chat-msg-icon" style="font-size: 22px;">${line.role === "user" ? "\uD83D\uDC64" : "\uD83E\uDD16"}</span>
+                      <span class="mm-chat-msg-text" style="font-size: 17px; line-height: 1.5; color: ${line.role === 'user' ? '#e2e8f0' : '#f1f5f9'}; font-family: 'Inter', sans-serif;">${formatChatText(line.text)}</span>
                     </div>
                   `,
                 )
-              : html`<div class="mm-chat-empty">No messages yet. Say hi!</div>`}
+              : html`<div class="mm-chat-empty" style="padding: 40px; text-align: center; color: #64748b; font-size: 18px;">No messages yet. Say hi!</div>`}
           </div>
 
-          <form class="mm-chat-input-row" @submit=${(e: Event) => {
+          <form class="mm-chat-input-row" 
+            style="padding: 18px 24px; border-top: 1.5px solid #334155; display: flex; gap: 12px;"
+            @submit=${(e: Event) => {
             e.preventDefault();
             const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
             const msg = input?.value.trim();
@@ -308,8 +311,10 @@ function renderChatBubble(
             }
           }}>
             <input type="text" class="mm-chat-input" placeholder="Type a message\u2026"
+              style="flex: 1; background: #0f172a; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 18px; color: #f8fafc; font-size: 17px; outline: none;"
               autocomplete="off" />
-            <button type="submit" class="mm-chat-send">\u27A4</button>
+            <button type="submit" class="mm-chat-send"
+              style="background: #6366f1; color: white; border: none; border-radius: 10px; padding: 0 20px; font-size: 22px; cursor: pointer;">\u27A4</button>
           </form>
         </div>
       </foreignObject>
@@ -405,11 +410,30 @@ function renderNode(
         fill=${status === "done" ? "#22c55e" : status === "active" ? "#3b82f6" : "#6b7280"} />
 
       ${node.description
-        ? svg`<foreignObject x=${r - 5} y=${-r - 65} width="220" height="85" pointer-events="none">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="font-size: 11.5px; color: #f1f5f9; background: rgba(15, 23, 42, 0.95); border: 1.5px solid #475569; border-radius: 8px; padding: 6px 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; line-height: 1.4; font-weight: 600; font-family: 'Inter', sans-serif; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.2), 0 4px 6px -4px rgb(0 0 0 / 0.2); backdrop-filter: blur(4px);">
-              ${node.description}
-            </div>
-          </foreignObject>`
+        ? (() => {
+            const isLeft = node.x < -10;
+            const foWidth = 600;
+            // Position the foreignObject so its edge is near the node boundary
+            const outerX = isLeft ? -foWidth - r + 15 : r - 15;
+            const align = isLeft ? "flex-end" : "flex-start";
+            
+            const tailStyle = isLeft
+              ? "bottom: -12px; right: 12px; border-right: 2.5px solid #64748b; border-bottom: 2.5px solid #64748b; border-bottom-right-radius: 4px; transform: rotate(45deg) skew(-10deg, -10deg);"
+              : "bottom: -12px; left: 12px; border-left: 2.5px solid #64748b; border-bottom: 2.5px solid #64748b; border-bottom-left-radius: 4px; transform: rotate(45deg) skew(10deg, 10deg);";
+
+            return svg`<foreignObject x=${outerX} y=${-r - 210} width=${foWidth} height="250" pointer-events="none">
+              <div xmlns="http://www.w3.org/1999/xhtml" style="position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: ${align};">
+                <div style="position: relative; display: inline-block;">
+                  <!-- Bubble -->
+                  <div style="display: inline-block; width: fit-content; max-width: 450px; font-size: 25px; color: #f8fafc; background: rgba(15, 23, 42, 0.94); border: 2.5px solid #64748b; border-radius: 16px; padding: 14px 20px; text-align: left; line-height: 1.35; font-weight: 600; font-family: 'Inter', sans-serif; box-shadow: 0 15px 30px -5px rgba(0,0,0,0.6); backdrop-filter: blur(12px);">
+                    ${node.description}
+                  </div>
+                  <!-- Tail -->
+                  <div style="position: absolute; width: 28px; height: 28px; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px); z-index: -1; ${tailStyle}"></div>
+                </div>
+              </div>
+            </foreignObject>`;
+          })()
         : nothing}
 
       ${isRoot && !isSelected && props.graph && props.graph.nodes.length === 1
@@ -654,15 +678,7 @@ export function renderMindmap(props: MindmapProps) {
         </svg>
       </div>
 
-      ${selectedNode
-        ? renderDetailPanel(
-            selectedNode,
-            isRootSelected,
-            sessions,
-            findSessionsForNode(selectedNode, sessions),
-            props,
-          )
-        : nothing}
+      ${nothing}
     </div>
   `;
 }
