@@ -1,12 +1,12 @@
 /* ── Mindmap tab styles ──────────────────────────────────────────────── */
 
-/* Container */
 .mm-container {
   position: relative;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
-  min-height: 400px;
+  flex: 1;
+  height: calc(100vh - 200px);
+  min-height: 0;
   overflow: hidden;
 }
 

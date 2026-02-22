@@ -250,75 +250,60 @@ function renderEdge(
   `;
 }
 
-// ── Interactive chat bubble (HTML overlay, centered below node) ──────
+// ── Interactive chat pane (HTML docked below canvas) ──────────────
 
-function renderChatBubble(
-  node: MindmapNode,
-  isRoot: boolean,
+function renderMainChatPane(
   chatLines: ChatPreviewLine[],
   sessionKey: string | null,
   props: MindmapProps,
 ) {
   if (!sessionKey) return nothing;
 
-  const r = isRoot ? ROOT_RADIUS : CHILD_RADIUS;
-  const bubbleW = 950;
-  const bubbleH = 400;
-  const bubbleY = r + 24;
+  // Render a docked pane at the bottom of the mindmap container
+  return html`
+    <div class="mm-main-chat-pane"
+      style="width: 30vw; min-width: 300px; max-width: 450px; height: 100%; flex-shrink: 0; background: rgba(15, 23, 42, 0.98); border-left: 2px solid #334155; display: flex; flex-direction: column; overflow: hidden; font-family: 'Inter', sans-serif;">
+      
+      <div class="mm-chat-box-header" style="padding: 12px 24px; border-bottom: 1.5px solid #334155; display: flex; align-items: center; justify-content: space-between; background: #0f172a;">
+        <span class="mm-chat-box-title" style="font-size: 16px; font-weight: 600; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px;">💡</span> Main Epic: <span style="font-family: monospace; color: #94a3b8; font-weight: 500;">${sessionKey}</span>
+        </span>
+      </div>
 
-  return svg`
-    <g transform="translate(${node.x}, ${node.y})">
-      <!-- Connector line -->
-      <line x1="0" y1=${r + 6} x2="0" y2=${bubbleY}
-        stroke="#6366f1" stroke-width="2" opacity="0.4" stroke-dasharray="4 4" />
+      <div class="mm-chat-messages" style="flex: 1; overflow-y: auto; padding: 20px 24px; gap: 16px; display: flex; flex-direction: column;">
+        ${chatLines.filter(l => !l.isSummary).length > 0
+          ? chatLines.filter(l => !l.isSummary).map(
+              (line) => html`
+                <div class="mm-chat-msg mm-chat-msg--${line.role}" style="display: flex; gap: 14px; align-items: flex-start; max-width: 1200px; margin: 0 auto; width: 100%;">
+                  <span class="mm-chat-msg-icon" style="font-size: 20px; margin-top: 2px;">${line.role === "user" ? "👤" : "🤖"}</span>
+                  <span class="mm-chat-msg-text" style="font-size: 16px; line-height: 1.6; color: ${line.role === 'user' ? '#e2e8f0' : '#f8fafc'};">${formatChatText(line.text)}</span>
+                </div>
+              `,
+            )
+          : html`<div class="mm-chat-empty" style="padding: 40px; text-align: center; color: #64748b; font-size: 16px; width: 100%;">No messages yet. Say hi!</div>`}
+      </div>
 
-      <!-- Chat bubble via foreignObject -->
-      <foreignObject
-        x=${-bubbleW / 2} y=${bubbleY}
-        width=${bubbleW} height=${bubbleH}
-        class="mm-chat-fo"
-      >
-        <div xmlns="http://www.w3.org/1999/xhtml" class="mm-chat-box"
-          style="height: 100%; display: flex; flex-direction: column; background: rgba(15, 23, 42, 0.96); border: 2.5px solid #475569; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); backdrop-filter: blur(12px);"
-          @pointerdown=${(e: Event) => e.stopPropagation()}
-          @wheel=${(e: Event) => e.stopPropagation()}>
-          <div class="mm-chat-box-header" style="padding: 18px 24px; border-bottom: 1.5px solid #334155;">
-            <span class="mm-chat-box-title" style="font-size: 20px; font-weight: 700; color: #f8fafc;">\uD83D\uDCAC ${sessionKey}</span>
-          </div>
-
-          <div class="mm-chat-messages" style="flex: 1; overflow-y: auto; padding: 20px; gap: 16px; display: flex; flex-direction: column;">
-            ${chatLines.filter(l => !l.isSummary).length > 0
-              ? chatLines.filter(l => !l.isSummary).map(
-                  (line) => html`
-                    <div class="mm-chat-msg mm-chat-msg--${line.role}" style="display: flex; gap: 14px; align-items: flex-start;">
-                      <span class="mm-chat-msg-icon" style="font-size: 22px;">${line.role === "user" ? "\uD83D\uDC64" : "\uD83E\uDD16"}</span>
-                      <span class="mm-chat-msg-text" style="font-size: 17px; line-height: 1.5; color: ${line.role === 'user' ? '#e2e8f0' : '#f1f5f9'}; font-family: 'Inter', sans-serif;">${formatChatText(line.text)}</span>
-                    </div>
-                  `,
-                )
-              : html`<div class="mm-chat-empty" style="padding: 40px; text-align: center; color: #64748b; font-size: 18px;">No messages yet. Say hi!</div>`}
-          </div>
-
-          <form class="mm-chat-input-row" 
-            style="padding: 18px 24px; border-top: 1.5px solid #334155; display: flex; gap: 12px;"
-            @submit=${(e: Event) => {
-            e.preventDefault();
-            const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
-            const msg = input?.value.trim();
-            if (msg && sessionKey) {
-              props.onSendChat(sessionKey, msg);
-              input.value = "";
-            }
-          }}>
-            <input type="text" class="mm-chat-input" placeholder="Type a message\u2026"
-              style="flex: 1; background: #0f172a; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 18px; color: #f8fafc; font-size: 17px; outline: none;"
-              autocomplete="off" />
-            <button type="submit" class="mm-chat-send"
-              style="background: #6366f1; color: white; border: none; border-radius: 10px; padding: 0 20px; font-size: 22px; cursor: pointer;">\u27A4</button>
-          </form>
-        </div>
-      </foreignObject>
-    </g>
+      <form class="mm-chat-input-row" 
+        style="padding: 16px 24px; border-top: 1px solid #334155; display: flex; gap: 12px; background: #0f172a; align-items: center;"
+        @submit=${(e: Event) => {
+        e.preventDefault();
+        const input = (e.target as HTMLFormElement).querySelector("input") as HTMLInputElement;
+        const msg = input?.value.trim();
+        if (msg && sessionKey) {
+          props.onSendChat(sessionKey, msg);
+          input.value = "";
+        }
+      }}>
+        <input type="text" class="mm-chat-input" placeholder="Type a message to the main agent..."
+          style="flex: 1; min-width: 0; background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 14px 20px; color: #f8fafc; font-size: 16px; outline: none; transition: border-color 0.2s; max-width: 1100px; margin: 0 auto;"
+          autocomplete="off" />
+        <button type="submit" class="mm-chat-send"
+          style="background: #6366f1; color: white; border: none; border-radius: 8px; padding: 0 24px; height: 48px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;"
+          onmouseover=${(e: Event) => (e.currentTarget as HTMLElement).style.background = '#4f46e5'}
+          onmouseout=${(e: Event) => (e.currentTarget as HTMLElement).style.background = '#6366f1'}
+        >➤</button>
+      </form>
+    </div>
   `;
 }
 
@@ -412,24 +397,24 @@ function renderNode(
       ${node.description
         ? (() => {
             const isLeft = node.x < -10;
-            const foWidth = 600;
+            const foWidth = 400;
             // Position the foreignObject so its edge is near the node boundary
             const outerX = isLeft ? -foWidth - r + 15 : r - 15;
             const align = isLeft ? "flex-end" : "flex-start";
             
             const tailStyle = isLeft
-              ? "bottom: -12px; right: 12px; border-right: 2.5px solid #64748b; border-bottom: 2.5px solid #64748b; border-bottom-right-radius: 4px; transform: rotate(45deg) skew(-10deg, -10deg);"
-              : "bottom: -12px; left: 12px; border-left: 2.5px solid #64748b; border-bottom: 2.5px solid #64748b; border-bottom-left-radius: 4px; transform: rotate(45deg) skew(10deg, 10deg);";
+              ? "bottom: -10px; right: 12px; border-right: 2px solid #64748b; border-bottom: 2px solid #64748b; border-bottom-right-radius: 3px; transform: rotate(45deg) skew(-10deg, -10deg);"
+              : "bottom: -10px; left: 12px; border-left: 2px solid #64748b; border-bottom: 2px solid #64748b; border-bottom-left-radius: 3px; transform: rotate(45deg) skew(10deg, 10deg);";
 
-            return svg`<foreignObject x=${outerX} y=${-r - 210} width=${foWidth} height="250" pointer-events="none">
+            return svg`<foreignObject x=${outerX} y=${-r - 380} width=${foWidth} height="400" pointer-events="none" style="overflow: visible;">
               <div xmlns="http://www.w3.org/1999/xhtml" style="position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: ${align};">
                 <div style="position: relative; display: inline-block;">
                   <!-- Bubble -->
-                  <div style="display: inline-block; width: fit-content; max-width: 450px; font-size: 25px; color: #f8fafc; background: rgba(15, 23, 42, 0.94); border: 2.5px solid #64748b; border-radius: 16px; padding: 14px 20px; text-align: left; line-height: 1.35; font-weight: 600; font-family: 'Inter', sans-serif; box-shadow: 0 15px 30px -5px rgba(0,0,0,0.6); backdrop-filter: blur(12px);">
-                    ${node.description}
+                  <div style="display: inline-block; width: fit-content; max-width: 300px; font-size: 14px; color: #f8fafc; background: rgba(15, 23, 42, 0.94); border: 2px solid #64748b; border-radius: 12px; padding: 10px 14px; text-align: left; line-height: 1.4; font-weight: 500; font-family: 'Inter', sans-serif; box-shadow: 0 10px 20px -5px rgba(0,0,0,0.5); backdrop-filter: blur(8px);">
+                    <span style="font-weight: 700; color: #94a3b8;">${label}:</span> ${node.description}
                   </div>
                   <!-- Tail -->
-                  <div style="position: absolute; width: 28px; height: 28px; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px); z-index: -1; ${tailStyle}"></div>
+                  <div style="position: absolute; width: 20px; height: 20px; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(8px); z-index: -1; ${tailStyle}"></div>
                 </div>
               </div>
             </foreignObject>`;
@@ -574,7 +559,7 @@ function renderToolbar(props: MindmapProps) {
       <button class="mm-toolbar-btn" title="Zoom in"
         @click=${() => props.onZoomChange(Math.min(props.zoom * 1.25, MAX_ZOOM))}>+</button>
       <button class="mm-toolbar-btn" title="Reset view"
-        @click=${() => { props.onPanChange({ x: 0, y: 0 }); props.onZoomChange(1); }}>⊞</button>
+        @click=${() => { props.onPanChange({ x: 0, y: 0 }); props.onZoomChange(0.75); }}>⊞</button>
 
       <span class="mm-toolbar-divider"></span>
 
@@ -623,8 +608,9 @@ export function renderMindmap(props: MindmapProps) {
     <div class="mm-container">
       ${renderToolbar(props)}
 
-      <div
-        class="mm-canvas-wrap"
+      <div style="display: flex; flex-direction: row; flex: 1; min-height: 0;">
+        <div
+          class="mm-canvas-wrap" style="flex: 1; min-height: 0;"
         @wheel=${(e: WheelEvent) => {
           e.preventDefault();
           const factor = e.deltaY > 0 ? 0.92 : 1.08;
@@ -661,8 +647,6 @@ export function renderMindmap(props: MindmapProps) {
             })}
             ${graph.nodes.map((node, i) => {
               const isRoot = i === 0;
-              const chatLines = getChatPreviewForNode(node, props.chatPreviews);
-              const sessionKey = getFirstSessionKey(node);
               return svg`
                 ${renderNode(
                   node,
@@ -671,14 +655,20 @@ export function renderMindmap(props: MindmapProps) {
                   findSessionsForNode(node, sessions),
                   props,
                 )}
-                ${node.id === props.selectedNodeId ? renderChatBubble(node, isRoot, chatLines, sessionKey, props) : nothing}
               `;
             })}
           </g>
         </svg>
       </div>
 
-      ${nothing}
+      ${(() => {
+        const rootNode = graph.nodes[0];
+        if (!rootNode) return nothing;
+        const chatLines = getChatPreviewForNode(rootNode, props.chatPreviews);
+        const sessionKey = getFirstSessionKey(rootNode);
+        return renderMainChatPane(chatLines, sessionKey, props);
+      })()}
+      </div>
     </div>
   `;
 }

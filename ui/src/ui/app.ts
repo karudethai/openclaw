@@ -359,7 +359,7 @@ export class OpenClawApp extends LitElement {
   @state() mindmapSelectedNodeId: MindmapNodeId | null = null;
   @state() mindmapEditingNodeId: MindmapNodeId | null = null;
   @state() mindmapPan = { x: 0, y: 0 };
-  @state() mindmapZoom = 1;
+  @state() mindmapZoom = 0.75;
   @state() mindmapDragging = false;
   @state() mindmapSessionsResult: SessionsListResult | null = null;
   @state() mindmapChatPreviews: Map<string, import("./controllers/mindmap.ts").ChatPreviewLine[]> = new Map();

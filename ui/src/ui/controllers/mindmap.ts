@@ -99,7 +99,7 @@ export function applyRadialLayout(graph: MindmapGraph) {
 
   if (childNodes.length === 0) return;
 
-  const radius = Math.max(350, (childNodes.length * 380) / TWO_PI);
+  const radius = Math.max(200, (childNodes.length * 220) / TWO_PI);
   
   childNodes.forEach((child, index) => {
     const angle = (TWO_PI * index) / Math.max(childNodes.length, 1) - Math.PI / 2;
@@ -277,64 +277,61 @@ function extractTextFromMessage(msg: unknown): string | null {
   return null;
 }
 
-const activeSummaries = new Set<string>(); // runIds
-
-async function requestLLMSummary(state: MindmapState, node: MindmapNode, lines: ChatPreviewLine[]) {
-  if (!state.client || !state.connected || !node.sessionKeys || node.sessionKeys.length === 0) return;
-
-  const sessionKey = node.sessionKeys[0];
-  const idempotencyKey = "mm-sum-" + generateUUID();
-  activeSummaries.add(idempotencyKey);
-
-  const lastAssistantLine = lines.findLast(l => l.role === 'assistant' && !l.isSummary);
-  if (!lastAssistantLine) {
-    activeSummaries.delete(idempotencyKey);
-    return;
-  }
-  
-  const prompt = `[Summary Request]: Summarize your last message in exactly one short, descriptive sentence (max 90 characters). 
-Focus on the core action taken or the conclusion reached. Use active voice. 
-Your response MUST start with "[Node Summary]:".
-
-Assistant Message:
-${lastAssistantLine.text}`;
-
-  try {
-    node.lastSummaryMessageCount = lines.length;
-    saveMindmap(state);
-
-    await state.client.request("agent", {
-      message: prompt,
-      sessionKey,
-      idempotencyKey,
-      deliver: false,
-    });
-  } catch (err) {
-    console.error("LLM Summary request failed", err);
-    activeSummaries.delete(idempotencyKey);
-  }
-}
-
 function generateChatSummary(lines: ChatPreviewLine[]): string {
   if (lines.length === 0) return "";
-  const lastAssistant = lines.findLast(l => l.role === 'assistant' && !l.isSummary);
-  const targetText = lastAssistant ? lastAssistant.text : lines[lines.length - 1].text;
+
+  // Helper to test if text is just technical noise
+  const isTechnicalOnly = (text: string) => {
+    const cleaned = text
+      .replace(/\[Node Summary\]:.*$/g, "")
+      .replace(/\[Summary Request\]:.*$/g, "")
+      .replace(/REPLY_SKIP/g, "")
+      .replace(/ANNOUNCE_SKIP/g, "")
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/[*`#\n]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return cleaned.length === 0;
+  };
+
+  // Find the last assistant message that actually has conversational value
+  let targetText = "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.role === 'assistant' && !line.isSummary && !isTechnicalOnly(line.text)) {
+      targetText = line.text;
+      break;
+    }
+  }
+
+  // If no good assistant message exists, fallback to the very last message in the array
+  if (!targetText) {
+    targetText = lines[lines.length - 1].text;
+  }
   
   const cleanText = targetText
     .replace(/\[Node Summary\]:.*$/g, "")
     .replace(/\[Summary Request\]:.*$/g, "")
+    .replace(/REPLY_SKIP/g, "")
+    .replace(/ANNOUNCE_SKIP/g, "")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/[*`#\n]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleanText) return "Working…";
   
-  const match = cleanText.match(/^[^.!?]*[.!?]/);
-  let sentence = match ? match[0].trim() : cleanText;
-  if (sentence.length > 90) {
-    sentence = sentence.slice(0, 87) + "...";
+  // Extract sentences by splitting at punctuation followed by space
+  const sentences = cleanText.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+  if (sentences.length === 0) return cleanText;
+  
+  const lastSentence = sentences[sentences.length - 1];
+  
+  // If the last sentence is very short (< 23 chars) and there's a previous sentence, include the last two.
+  if (lastSentence.length < 23 && sentences.length > 1) {
+    return sentences[sentences.length - 2] + " " + lastSentence;
   }
-  return sentence;
+  
+  return lastSentence;
 }
 
 export async function fetchChatPreviews(state: MindmapState): Promise<void> {
@@ -373,16 +370,7 @@ export async function fetchChatPreviews(state: MindmapState): Promise<void> {
           const node = state.mindmapGraph!.nodes.find(n => n.sessionKeys && n.sessionKeys.includes(sessionKey));
           if (node) {
             const visibleLines = lines.filter(l => !l.isSummary);
-            const lastIsAssistant = visibleLines.length > 0 && visibleLines[visibleLines.length - 1].role === 'assistant';
-            const shouldLLM = lastIsAssistant && (node.lastSummaryMessageCount === undefined || visibleLines.length > node.lastSummaryMessageCount);
-            
-            if (shouldLLM) {
-              void requestLLMSummary(state, node, visibleLines);
-            }
-            
-            if (!node.description) {
-              node.description = generateChatSummary(visibleLines);
-            }
+            node.description = generateChatSummary(visibleLines);
           }
         }
       } catch {
@@ -419,12 +407,7 @@ export async function sendChatFromMindmap(
   const nodeToUpdate = state.mindmapGraph?.nodes.find(n => n.sessionKeys?.includes(sessionKey));
   if (nodeToUpdate) {
     const visibleLines = newLines.filter(l => !l.isSummary);
-    if (!nodeToUpdate.description) {
-      nodeToUpdate.description = generateChatSummary(visibleLines);
-    }
-    if (visibleLines.length > (nodeToUpdate.lastSummaryMessageCount ?? 0) && visibleLines.length > 0 && visibleLines[visibleLines.length - 1].role === 'assistant') {
-      void requestLLMSummary(state, nodeToUpdate, visibleLines);
-    }
+    nodeToUpdate.description = generateChatSummary(visibleLines);
   }
   
   scrollMindmapChatsToBottom();
